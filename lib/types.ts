@@ -1,3 +1,5 @@
+import type { sourceTypeEnum, corroborationEnum } from "./db/schema";
+
 export type SourceType =
   | "primary-study"
   | "press-release"
@@ -8,7 +10,50 @@ export type SourceType =
   | "data-source"
   | "interview";
 
+export type Corroboration = "strong" | "partial" | "none" | "unverified";
+
 export type SeverityLevel = "low" | "medium" | "high";
+
+// Compile-time assertions: app types ↔ DB enums stay in sync
+type DbSourceType = (typeof sourceTypeEnum.enumValues)[number];
+type DbCorroboration = (typeof corroborationEnum.enumValues)[number];
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertSourceType = DbSourceType extends SourceType
+  ? SourceType extends DbSourceType
+    ? true
+    : never
+  : never;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _AssertCorroboration = DbCorroboration extends Corroboration
+  ? Corroboration extends DbCorroboration
+    ? true
+    : never
+  : never;
+
+export type EntityType = "person" | "organization" | "place" | "event" | "document" | "concept";
+
+export interface Triple {
+  subject: string;       // canonical entity name
+  subjectType: EntityType;
+  predicate: string;     // normalized verb
+  object: string;        // canonical entity name
+  objectType: EntityType;
+  context?: string;
+}
+
+export interface Claim {
+  /** e.g. "Anthropic refused Pentagon's demand for unrestricted AI access" */
+  claim: string;
+  /** Named entities involved, e.g. ["Anthropic", "Pentagon", "Dario Amodei"] */
+  entities: string[];
+  /** Source attribution, e.g. "Dario Amodei statement" or "AP reporting" */
+  attribution: string;
+}
+
+export interface ExtractedClaim extends Claim {
+  triples: Triple[];
+  embedding: number[];
+}
 
 export interface EpistemicMetrics {
   /** How accurately this source represents its parent (0-1, 1 = perfect fidelity) */
@@ -18,17 +63,21 @@ export interface EpistemicMetrics {
   /** Classification of this source */
   sourceType: SourceType;
   /** Whether claims are independently corroborated */
-  corroboration: "strong" | "partial" | "none" | "unverified";
+  corroboration: Corroboration;
 }
 
 export interface SourceNode {
   id: string;
   title: string;
-  url: string;
+  url: string | null;
   publisher: string;
   date: string;
   sourceType: SourceType;
   snippet: string;
+  phantom?: boolean;
+  phantomKey?: string;
+  unscrapable?: boolean;
+  attributedClaims?: string[];
 }
 
 export interface SourceEdge {
@@ -49,4 +98,5 @@ export interface AnalysisResult {
   };
   nodes: SourceNode[];
   edges: SourceEdge[];
+  claims: Record<string, Claim[]>;  // nodeId → claims (no embeddings/triples in API response)
 }

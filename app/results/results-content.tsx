@@ -89,7 +89,7 @@ export function ResultsContent() {
             </div>
 
             {/* Summary stats */}
-            <div className="flex gap-6 text-xs">
+            <div className="flex flex-wrap gap-6 text-xs">
               <div>
                 <span className="text-muted-foreground">sources traced</span>{" "}
                 <span className="font-semibold">{data.nodes.length}</span>
@@ -98,6 +98,14 @@ export function ResultsContent() {
                 <span className="text-muted-foreground">links analyzed</span>{" "}
                 <span className="font-semibold">{data.edges.length}</span>
               </div>
+              {data.nodes.filter((n) => n.phantom).length > 0 && (
+                <div>
+                  <span className="text-muted-foreground">unlinked sources</span>{" "}
+                  <span className="font-semibold text-blue-600 dark:text-blue-400">
+                    {data.nodes.filter((n) => n.phantom).length}
+                  </span>
+                </div>
+              )}
               <div>
                 <span className="text-muted-foreground">concerns</span>{" "}
                 <span className="font-semibold text-yellow-600 dark:text-yellow-400">

@@ -174,4 +174,5 @@ export const mockAnalysis: AnalysisResult = {
       ],
     },
   ],
+  claims: {},
 };

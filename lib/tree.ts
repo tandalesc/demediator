@@ -24,9 +24,14 @@ export function buildSourceTree(analysis: AnalysisResult): SourceTreeNode {
     edgesByTarget.set(edge.target, existing);
   }
 
+  const visited = new Set<string>();
+
   function buildNode(nodeId: string, incomingEdge: SourceEdge | null): SourceTreeNode {
     const node = nodeMap.get(nodeId)!;
-    const childEdges = edgesByTarget.get(nodeId) || [];
+    visited.add(nodeId);
+
+    const childEdges = (edgesByTarget.get(nodeId) || [])
+      .filter((edge) => !visited.has(edge.source));
 
     return {
       node,

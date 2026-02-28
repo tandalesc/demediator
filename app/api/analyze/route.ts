@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { mockAnalysis } from "@/lib/mock-data";
+import { getAnalysisByUrl, insertAnalysis } from "@/lib/db/queries";
+import { runPipeline } from "@/lib/pipeline";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -15,14 +16,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
   }
 
-  // Simulate processing delay
-  await new Promise((resolve) => setTimeout(resolve, 800));
+  // Fast path: return cached analysis
+  const cached = await getAnalysisByUrl(url);
+  if (cached) {
+    return NextResponse.json(cached);
+  }
 
-  return NextResponse.json({
-    ...mockAnalysis,
-    article: {
-      ...mockAnalysis.article,
-      url,
-    },
-  });
+  // Slow path: run the real analysis pipeline
+  try {
+    const { result, claimData } = await runPipeline(url);
+    await insertAnalysis(result, claimData);
+    return NextResponse.json(result);
+  } catch (err) {
+    console.error("Pipeline failed:", err);
+    return NextResponse.json(
+      { error: "Analysis failed. Please try again." },
+      { status: 502 },
+    );
+  }
 }

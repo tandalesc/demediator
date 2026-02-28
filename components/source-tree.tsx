@@ -95,7 +95,13 @@ function TreeNode({
         <div className="border-border absolute top-0 -left-px h-4 w-4 border-b border-l sm:w-6" />
       )}
 
-      <div className={cn("space-y-1.5", !isRoot && "pt-2")}>
+      <div
+        className={cn(
+          "space-y-1.5",
+          !isRoot && "pt-2",
+          node.phantom && "rounded border border-dashed border-muted-foreground/30 p-2",
+        )}
+      >
         {/* Transmission metrics (on the edge into this node) */}
         {edge && (
           <div className="mb-1">
@@ -106,14 +112,18 @@ function TreeNode({
         {/* Source header */}
         <header>
           <h3 className={cn("font-semibold leading-snug", isRoot ? "text-base" : "text-sm")}>
-            <a
-              href={node.url}
-              className="hover:underline"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {node.title}
-            </a>
+            {node.url ? (
+              <a
+                href={node.url}
+                className="hover:underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {node.title}
+              </a>
+            ) : (
+              <span className="italic text-muted-foreground">{node.title}</span>
+            )}
           </h3>
           <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
             <span>{node.publisher}</span>
@@ -122,11 +132,34 @@ function TreeNode({
             <Badge variant="secondary" className="px-1 py-0 text-[9px]">
               {sourceTypeLabels[node.sourceType]}
             </Badge>
+            {node.phantom && (
+              <Badge variant="outline" className="border-dashed px-1 py-0 text-[9px]">
+                unlinked
+              </Badge>
+            )}
           </p>
         </header>
 
         {/* Snippet */}
         <p className="text-muted-foreground text-xs leading-relaxed">{node.snippet}</p>
+
+        {/* Attributed claims (phantom nodes) */}
+        {node.attributedClaims && node.attributedClaims.length > 0 && (
+          <details className="group">
+            <summary className="text-[11px] font-medium cursor-pointer select-none hover:underline">
+              <span className="text-blue-600 dark:text-blue-400">
+                {node.attributedClaims.length} attributed claim{node.attributedClaims.length > 1 ? "s" : ""}
+              </span>
+            </summary>
+            <ul className="mt-1 space-y-0.5 text-[11px] text-blue-600/80 dark:text-blue-400/80">
+              {node.attributedClaims.map((claim, i) => (
+                <li key={i} className="before:text-border before:mr-2 before:content-['—']">
+                  {claim}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
 
         {/* Epistemic concerns */}
         {edge && edge.concerns.length > 0 && (
