@@ -1,36 +1,143 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# demediator
 
-## Getting Started
+Trace epistemic quality through the news source chain. Paste a URL, and demediator crawls the article's sources recursively, analyzing how claims mutate as they pass from primary sources through layers of reporting.
 
-First, run the development server:
+> **Status:** Early development. The core pipeline works but the project is not yet packaged for easy deployment.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## What it does
+
+1. **Scrapes** the target article and extracts cited sources (linked and unlinked)
+2. **Recursively crawls** the source chain up to 5 levels deep (BFS)
+3. **Classifies** each source (primary study, wire service, press release, opinion, etc.)
+4. **Extracts claims** and builds a knowledge graph of entities and relationships
+5. **Analyzes fidelity** between each source pair — how faithfully does the downstream article represent what the source actually said?
+6. **Identifies editorialization** — where spin gets added between source and reporting
+7. **Detects unsubstantiated claims** — assertions with no traceable source
+8. **Renders a source tree** showing the full chain with per-edge metrics
+
+## Architecture
+
+```
+┌──────────────┐     ┌───────────┐     ┌──────────────┐
+│   Next.js    │────▸│  Crawl4AI │     │  LLM (small) │
+│   Frontend   │     │  Scraper  │     │  classify,    │
+│              │     └───────────┘     │  extract,     │
+│  /results    │                       │  match,       │
+│  source tree │     ┌───────────┐     │  summarize    │
+│              │────▸│ PostgreSQL│     └──────────────┘
+│  /api/analyze│     │ + pgvector│     ┌──────────────┐
+└──────────────┘     └───────────┘     │  LLM (large) │
+                                       │  fidelity     │
+                                       │  analysis     │
+                                       └──────────────┘
+                                       ┌──────────────┐
+                                       │  Embedding    │
+                                       │  model        │
+                                       └──────────────┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### External services
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+demediator connects to three categories of external services, all configurable via environment variables:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+#### Crawl4AI (web scraper)
 
-## Learn More
+The scraper service handles URL fetching, JavaScript rendering, and markdown extraction. demediator expects a [Crawl4AI](https://github.com/unclecode/crawl4ai) instance (or any API-compatible alternative) running on port 11235 by default.
 
-To learn more about Next.js, take a look at the following resources:
+Crawl4AI uses Playwright under the hood, so it handles SPAs, paywalled previews, and dynamically-loaded content. demediator calls two endpoints:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `/crawl` — returns raw HTML, internal/external links, and page metadata
+- `/md` — returns cleaned article markdown with boilerplate stripped
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Results are cached in-memory (process lifetime) and on disk (24-hour TTL in `.cache/scraper/`).
 
-## Deploy on Vercel
+```bash
+# Run Crawl4AI with Docker
+docker run -p 11235:11235 unclecode/crawl4ai
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+#### LLMs (OpenAI-compatible API)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+demediator uses **three separate LLM endpoints**, all speaking the OpenAI chat completions API. This means any OpenAI-compatible server works: [vLLM](https://github.com/vllm-project/vllm), [Ollama](https://ollama.com), [llama.cpp](https://github.com/ggml-org/llama.cpp), [LiteLLM](https://github.com/BerriAI/litellm), or OpenAI itself.
+
+| Endpoint | Purpose | Suggested model class |
+|----------|---------|----------------------|
+| **Small LLM** (port 8001) | Classification, claim extraction, phantom matching, summaries | 7-14B instruction-tuned (e.g., Qwen 2.5 7B, Llama 3.1 8B) |
+| **Large LLM** (port 8003) | Source fidelity analysis (comparing two documents) | 32B+ reasoning model (e.g., Qwen 2.5 32B, Llama 3.1 70B) |
+| **Embedding** (port 8002) | Claim similarity for cross-source corroboration | Any model producing 768-dim vectors |
+
+All three can point to the same server if you prefer — just set the env vars accordingly. The separation exists because fidelity analysis benefits from a larger model while classification/extraction can run fast on a smaller one.
+
+**JSON mode is required** — the models must support `response_format: { type: "json_object" }`. Most OpenAI-compatible servers support this.
+
+#### PostgreSQL + pgvector
+
+Analysis results are persisted in PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector) extension for claim embeddings (768-dimensional vectors). The schema is managed by [Drizzle ORM](https://orm.drizzle.team/).
+
+```bash
+# Create the database
+createdb demediator
+
+# Enable pgvector (requires the extension installed)
+psql demediator -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# Apply the schema
+pnpm db:push
+```
+
+## Setup
+
+### Prerequisites
+
+- Node.js 20+
+- pnpm
+- PostgreSQL 15+ with pgvector
+- A Crawl4AI instance
+- One or more OpenAI-compatible LLM endpoints
+
+### Install and run
+
+```bash
+git clone https://github.com/nicosxt/demediator.git
+cd demediator
+pnpm install
+
+# Configure services
+cp .env.example .env.local
+# Edit .env.local with your endpoints
+
+# Set up database
+pnpm db:push
+
+# Run dev server
+pnpm dev
+```
+
+Open `http://localhost:3000`, paste a news article URL, and submit.
+
+## Environment variables
+
+See [`.env.example`](.env.example) for the full list. Key variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `SCRAPER_BASE_URL` | Yes | Crawl4AI endpoint (default: `http://localhost:11235`) |
+| `SMALL_LLM_BASE_URL` | Yes | OpenAI-compatible endpoint for fast tasks |
+| `SMALL_LLM_MODEL` | Yes | Model name for the small LLM |
+| `LARGE_LLM_BASE_URL` | Yes | OpenAI-compatible endpoint for fidelity analysis |
+| `LARGE_LLM_MODEL` | Yes | Model name for the large LLM |
+| `EMBEDDING_BASE_URL` | Yes | OpenAI-compatible embedding endpoint |
+| `EMBEDDING_MODEL` | Yes | Embedding model name |
+
+## Tech stack
+
+- **Framework:** Next.js 16 + React 19 + TypeScript
+- **Database:** PostgreSQL + Drizzle ORM + pgvector
+- **Scraping:** Crawl4AI (external service)
+- **LLM:** OpenAI-compatible API (any provider)
+- **UI:** Tailwind CSS + shadcn/ui + Radix UI + Phosphor Icons
+
+## License
+
+[MIT](LICENSE)
