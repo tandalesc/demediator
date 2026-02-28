@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db } from ".";
 import {
   analyses,
@@ -10,11 +10,30 @@ import {
   sourceEdges,
   sourceNodes,
 } from "./schema";
-import type { AnalysisResult, ExtractedClaim } from "../types";
+import type { AnalysisResult, AnalysisSummary, ExtractedClaim } from "../types";
 
 // ---------------------------------------------------------------------------
 // Read
 // ---------------------------------------------------------------------------
+
+export async function listRecentAnalyses(limit = 10) {
+  const rows = await db.query.analyses.findMany({
+    orderBy: (a, { desc }) => [desc(a.createdAt)],
+    limit,
+    columns: {
+      articleUrl: true,
+      articleTitle: true,
+      articlePublisher: true,
+      createdAt: true,
+    },
+  });
+  return rows.map((r) => ({
+    url: r.articleUrl,
+    title: r.articleTitle,
+    publisher: r.articlePublisher,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
 
 export async function getAnalysisByUrl(
   url: string,
@@ -48,6 +67,25 @@ export async function getAnalysisByUrl(
     });
   }
 
+  // Reconstruct summary if stored
+  let summary: AnalysisSummary | undefined;
+  if (row.summaryText) {
+    let unverifiedClaims: string[] = [];
+    if (row.summaryUnverifiedClaims) {
+      try {
+        unverifiedClaims = JSON.parse(row.summaryUnverifiedClaims);
+      } catch { /* ignore parse error */ }
+    }
+    summary = {
+      text: row.summaryText,
+      overallFidelity: row.summaryFidelity ?? 0,
+      concernCount: row.summaryConcernCount ?? 0,
+      strongCorroboration: row.summaryStrongCorroboration ?? 0,
+      weakCorroboration: row.summaryWeakCorroboration ?? 0,
+      unverifiedClaims: unverifiedClaims,
+    };
+  }
+
   return {
     article: {
       title: row.articleTitle,
@@ -56,6 +94,7 @@ export async function getAnalysisByUrl(
       date: row.articleDate,
       snippet: row.articleSnippet,
     },
+    ...(summary && { summary }),
     nodes: row.nodes.map((n) => ({
       id: n.nodeId,
       title: n.title,
@@ -104,6 +143,14 @@ export async function insertAnalysis(
         articlePublisher: data.article.publisher,
         articleDate: data.article.date,
         articleSnippet: data.article.snippet,
+        ...(data.summary && {
+          summaryText: data.summary.text,
+          summaryFidelity: data.summary.overallFidelity,
+          summaryConcernCount: data.summary.concernCount,
+          summaryStrongCorroboration: data.summary.strongCorroboration,
+          summaryWeakCorroboration: data.summary.weakCorroboration,
+          summaryUnverifiedClaims: JSON.stringify(data.summary.unverifiedClaims),
+        }),
       })
       .returning({ id: analyses.id });
 

@@ -56,8 +56,25 @@ export function normalizeUrl(raw: string): string {
   return result;
 }
 
+const NON_ARTICLE_PATTERNS = [
+  /\/video\//i,
+  /\/videos\//i,
+  /\/watch\b/i,
+  /\/embed\//i,
+  /\/podcast\//i,
+  /\/episode\//i,
+  /\/live\b/i,
+];
+
+const NON_ARTICLE_DOMAINS = new Set([
+  "youtube.com", "youtu.be", "vimeo.com", "dailymotion.com",
+  "twitch.tv", "tiktok.com",
+  "spotify.com", "podcasts.apple.com",
+]);
+
 /**
- * Basic sanity check — reject things that are obviously not web pages.
+ * Basic sanity check — reject things that are obviously not web pages
+ * or are known non-text content (video, podcast, livestream pages).
  * Epistemic relevance filtering is handled by the LLM, not here.
  */
 export function isAnalyzableUrl(raw: string): boolean {
@@ -73,6 +90,16 @@ export function isAnalyzableUrl(raw: string): boolean {
   // Check file extensions
   const ext = url.pathname.match(/\.\w+$/)?.[0]?.toLowerCase();
   if (ext && BLOCKED_EXTENSIONS.has(ext)) return false;
+
+  // Reject known non-article domains (video/podcast platforms)
+  const hostname = url.hostname.toLowerCase().replace(/^www\./, "");
+  if (NON_ARTICLE_DOMAINS.has(hostname)) return false;
+
+  // Reject non-article URL path patterns
+  const pathAndSearch = url.pathname + url.search;
+  for (const pattern of NON_ARTICLE_PATTERNS) {
+    if (pattern.test(pathAndSearch)) return false;
+  }
 
   return true;
 }

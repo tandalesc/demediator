@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAnalysisByUrl, insertAnalysis } from "@/lib/db/queries";
+import { getAnalysisByUrl, insertAnalysis, listRecentAnalyses } from "@/lib/db/queries";
 import { runPipeline } from "@/lib/pipeline";
+
+export async function GET() {
+  const recent = await listRecentAnalyses();
+  return NextResponse.json(recent);
+}
 
 export async function POST(request: NextRequest) {
   const body = await request.json();

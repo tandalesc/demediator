@@ -55,6 +55,12 @@ export const analyses = pgTable("analyses", {
   articlePublisher: text("article_publisher").notNull(),
   articleDate: text("article_date").notNull(),
   articleSnippet: text("article_snippet").notNull(),
+  summaryText: text("summary_text"),
+  summaryFidelity: real("summary_fidelity"),
+  summaryConcernCount: integer("summary_concern_count"),
+  summaryStrongCorroboration: integer("summary_strong_corroboration"),
+  summaryWeakCorroboration: integer("summary_weak_corroboration"),
+  summaryUnverifiedClaims: text("summary_unverified_claims"),  // JSON array
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

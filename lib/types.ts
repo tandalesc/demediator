@@ -88,6 +88,15 @@ export interface SourceEdge {
   concerns: string[];
 }
 
+export interface AnalysisSummary {
+  text: string;
+  overallFidelity: number;
+  concernCount: number;
+  strongCorroboration: number;
+  weakCorroboration: number;
+  unverifiedClaims: string[];
+}
+
 export interface AnalysisResult {
   article: {
     title: string;
@@ -99,4 +108,5 @@ export interface AnalysisResult {
   nodes: SourceNode[];
   edges: SourceEdge[];
   claims: Record<string, Claim[]>;  // nodeId → claims (no embeddings/triples in API response)
+  summary?: AnalysisSummary;
 }

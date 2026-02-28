@@ -175,4 +175,15 @@ export const mockAnalysis: AnalysisResult = {
     },
   ],
   claims: {},
+  summary: {
+    text: "This article's source chain shows significant fidelity degradation — the original study's modest 12% mortality reduction inflates to '10 extra years of life' through successive editorial layers. 3 of 6 source links maintain strong corroboration, but the industry statement is presented without substantiation and the primary caution from nutritionists is buried.",
+    overallFidelity: 0.66,
+    concernCount: 7,
+    strongCorroboration: 3,
+    weakCorroboration: 1,
+    unverifiedClaims: [
+      "Coffee could extend lifespan by up to 10 years",
+      "Science continues to confirm coffee is part of a healthy lifestyle",
+    ],
+  },
 };

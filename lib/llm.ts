@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { SourceType, Corroboration, Claim, Triple, EntityType, ExtractedClaim } from "./types";
+import type { SourceType, Corroboration, Claim, Triple, EntityType, ExtractedClaim, AnalysisSummary, SourceEdge } from "./types";
 
 // ---------------------------------------------------------------------------
 // Clients
@@ -27,8 +27,18 @@ const SMALL_MODEL = process.env.SMALL_LLM_MODEL ?? "ramblerun/Multimodal-AI";
 const LARGE_MODEL = process.env.LARGE_LLM_MODEL ?? "ramblerun/Reasoning-AI";
 const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "ramblerun/TextEmbedding-AI";
 
-const MAX_CONTENT_CHARS = 16_000;
+const MAX_CLASSIFY_CHARS = 6_000;   // Classification needs first ~1500 words, not 4000
+const MAX_EXTRACT_CHARS = 16_000;   // Claims extraction needs full content
+const MAX_EDGE_CHARS = 12_000;      // Edge analysis: 12K per doc (24K total is still ample)
+const MAX_LINKS = 50;               // 50 links is plenty for sourceUrl identification
 const MAX_RETRIES = 2;
+
+const CLASSIFY_MAX_TOKENS = 4_096;    // title + type + publisher + date + snippet + 10 sourceUrls + 10 unlinkedSources
+const EXTRACT_MAX_TOKENS = 8_192;     // up to 15 claims with entities, attribution, triples
+const EDGE_MAX_TOKENS = 2_048;        // fidelity + editorialization + concerns array
+const PHANTOM_MAX_TOKENS = 2_048;     // fidelity + editorialization + concerns + attributedClaims
+const MATCH_MAX_TOKENS = 1_024;       // { "matches": [1, 3, ...] }
+const SUMMARY_MAX_TOKENS = 2_048;     // { "text": "2-3 sentences" }
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,8 +116,15 @@ const CLASSIFY_SYSTEM = `You are an epistemic source classifier. You will receiv
 
 Return a JSON object with exactly these fields:
 - "title": the actual headline/title of THIS specific article as it appears in the content. Do NOT use sidebar headlines, related article titles, or navigation text. If the content is not an article, use a short descriptive title.
-- "sourceType": one of "primary-study", "press-release", "wire-service", "secondary-reporting", "opinion", "official-statement", "data-source", "interview"
-  IMPORTANT: Use "data-source" for general reference content — wikis, knowledge bases, FAQ pages, documentation, glossaries, "about" pages, or any content that provides general background information rather than reporting on specific events. These pages lack specific dates, named sources, or event-driven claims. Do NOT classify them as "secondary-reporting" or "wire-service".
+- "sourceType": classify using these definitions:
+  • "primary-study" — Original peer-reviewed research, preprints, clinical trials, scientific data releases. Published in academic journals or institutional research portals. Contains methodology, data, or original experimental findings.
+  • "press-release" — Official announcements issued BY an organization about its own actions, findings, or positions. Published on the org's own website/newsroom. Written to promote or frame the org's narrative.
+  • "wire-service" — Reporting by a news wire (AP, Reuters, AFP, UPI). Typically syndicated across outlets. Neutral tone, no bylined opinion. Check the publisher/URL for wire attribution.
+  • "secondary-reporting" — A journalist or newsroom reporting on events using other sources. Contains bylines, quotes from sources, editorial framing. The default for news articles that are NOT wire copy, press releases, or opinion.
+  • "opinion" — Editorials, op-eds, columns, analysis pieces, blog posts where the author argues a position. Look for first-person voice, argumentative structure, "opinion" section labels, or explicit editorial framing.
+  • "official-statement" — Government filings, court documents, regulatory announcements, executive orders, official transcripts, congressional records. Issued by a government body or official in their official capacity.
+  • "data-source" — Reference/background content: wikis, knowledge bases, FAQs, documentation, glossaries, "about" pages, video pages, podcast pages, or any non-article content. These lack specific dates, named sources, or event-driven claims. Also use for multimedia (video/audio) pages where the primary content is not text.
+  • "interview" — A Q&A or interview transcript where a source is directly quoted at length. The structure is primarily question-and-answer or extended direct quotation from a single source.
 - "publisher": the publishing organization name
 - "date": publication date in YYYY-MM-DD format, or "" if unknown
 - "snippet": a 1-2 sentence summary of the key epistemic claim or finding (max 200 chars)
@@ -194,7 +211,7 @@ export async function classifySource(
   const t0 = Date.now();
   console.log(`[llm] classifySource start: ${url}`);
 
-  const content = truncate(markdown);
+  const content = truncate(markdown, MAX_CLASSIFY_CHARS);
   let userPrompt = `URL: ${url}\nTitle: ${title}\n\nContent:\n${content}`;
 
   if (links && links.length > 0) {
@@ -206,7 +223,7 @@ export async function classifySource(
         seen.add(link.href);
         uniqueLinks.push(link);
       }
-      if (uniqueLinks.length >= 100) break;
+      if (uniqueLinks.length >= MAX_LINKS) break;
     }
     const linkList = uniqueLinks
       .map((l) => l.text ? `- ${l.href} ("${l.text}")` : `- ${l.href}`)
@@ -214,7 +231,7 @@ export async function classifySource(
     userPrompt += `\n\nLINKS LIST:\n${linkList}`;
   }
 
-  const raw = await callWithRetry(smallLlm, SMALL_MODEL, CLASSIFY_SYSTEM, userPrompt);
+  const raw = await callWithRetry(smallLlm, SMALL_MODEL, CLASSIFY_SYSTEM, userPrompt, CLASSIFY_MAX_TOKENS);
   const parsed = safeParseJson(raw);
 
   const rawUnlinked = Array.isArray(parsed?.unlinkedSources) ? parsed.unlinkedSources : [];
@@ -260,7 +277,7 @@ export async function extractClaims(
   const content = truncate(markdown);
   const userPrompt = `Title: ${title}\n\nContent:\n${content}`;
 
-  const raw = await callWithRetry(smallLlm, SMALL_MODEL, EXTRACT_CLAIMS_SYSTEM, userPrompt);
+  const raw = await callWithRetry(smallLlm, SMALL_MODEL, EXTRACT_CLAIMS_SYSTEM, userPrompt, EXTRACT_MAX_TOKENS);
   const parsed = safeParseJson(raw);
 
   const rawClaims = Array.isArray(parsed?.claims) ? parsed.claims : [];
@@ -315,9 +332,9 @@ export async function analyzeEdge(
     kgSection += "\n";
   }
 
-  const userPrompt = `${dateContext}${kgSection}SOURCE DOCUMENT:\n${truncate(sourceContent)}\n\n---\n\nDOWNSTREAM DOCUMENT:\n${truncate(downstreamContent)}`;
+  const userPrompt = `${dateContext}${kgSection}SOURCE DOCUMENT:\n${truncate(sourceContent, MAX_EDGE_CHARS)}\n\n---\n\nDOWNSTREAM DOCUMENT:\n${truncate(downstreamContent, MAX_EDGE_CHARS)}`;
 
-  const raw = await callWithRetry(largeLlm, LARGE_MODEL, EDGE_ANALYSIS_SYSTEM, userPrompt, {
+  const raw = await callWithRetry(largeLlm, LARGE_MODEL, EDGE_ANALYSIS_SYSTEM, userPrompt, EDGE_MAX_TOKENS, {
     chat_template_kwargs: { enable_thinking: false },
   });
   const parsed = safeParseJson(raw);
@@ -346,7 +363,7 @@ export async function analyzePhantomEdge(
 
   const userPrompt = `REFERENCED SOURCE: ${phantomDescription}\n\nARTICLE:\n${truncate(articleContent)}`;
 
-  const raw = await callWithRetry(largeLlm, LARGE_MODEL, PHANTOM_EDGE_SYSTEM, userPrompt, {
+  const raw = await callWithRetry(largeLlm, LARGE_MODEL, PHANTOM_EDGE_SYSTEM, userPrompt, PHANTOM_MAX_TOKENS, {
     chat_template_kwargs: { enable_thinking: false },
   });
   const parsed = safeParseJson(raw);
@@ -409,7 +426,7 @@ Return a JSON object: { "matches": [1, 3, ...] } — an array of the 1-based pai
 
 Return ONLY valid JSON. No markdown fences, no explanation.`;
 
-  const raw = await callWithRetry(smallLlm, SMALL_MODEL, system, pairList);
+  const raw = await callWithRetry(smallLlm, SMALL_MODEL, system, pairList, MATCH_MAX_TOKENS);
   const parsed = safeParseJson(raw);
   const matchIndices = new Set(
     Array.isArray(parsed?.matches)
@@ -428,6 +445,82 @@ Return ONLY valid JSON. No markdown fences, no explanation.`;
     `[llm] matchPhantomsToReals done (${Date.now() - t0}ms): ${matchCount}/${candidates.length} matches`,
   );
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Summary
+// ---------------------------------------------------------------------------
+
+const SUMMARY_SYSTEM = `You are an epistemic quality analyst. You receive structured metrics from a source-chain analysis of a news article.
+
+Produce a 2-3 sentence narrative summary of the article's epistemic quality. Focus on:
+- How well claims are substantiated through the source chain
+- Where fidelity breaks down or editorialization creeps in
+- Which claims lack substantiation (trace back to unverified/phantom sources or weak corroboration)
+
+Be specific and direct. Reference concrete numbers when relevant (e.g. "3 of 6 source links show high fidelity"). Don't hedge with "may" or "might" — state what the data shows.
+
+Return a JSON object with exactly one field:
+- "text": the 2-3 sentence narrative summary
+
+Return ONLY valid JSON. No markdown fences, no explanation.`;
+
+export async function generateSummary(
+  edges: SourceEdge[],
+  nodeCount: number,
+  unsubstantiatedClaims: string[],
+): Promise<AnalysisSummary> {
+  const t0 = Date.now();
+  console.log(`[llm] generateSummary start: ${edges.length} edges, ${nodeCount} nodes`);
+
+  // Compute deterministic metrics
+  const fidelities = edges.map((e) => e.metrics.sourceFidelity);
+  const overallFidelity = fidelities.length > 0
+    ? fidelities.reduce((a, b) => a + b, 0) / fidelities.length
+    : 0;
+  const concernCount = edges.reduce((sum, e) => sum + e.concerns.length, 0);
+  const strongCorroboration = edges.filter((e) => e.metrics.corroboration === "strong").length;
+  const weakCorroboration = edges.filter(
+    (e) => e.metrics.corroboration === "none" || e.metrics.corroboration === "unverified",
+  ).length;
+
+  // Build structured input for LLM
+  const edgeMetrics = edges.map((e) => ({
+    source: e.source,
+    target: e.target,
+    fidelity: e.metrics.sourceFidelity,
+    editorialization: e.metrics.editorialization,
+    corroboration: e.metrics.corroboration,
+    sourceType: e.metrics.sourceType,
+    concerns: e.concerns,
+  }));
+
+  const userPrompt = JSON.stringify({
+    nodeCount,
+    edgeCount: edges.length,
+    overallFidelity: Math.round(overallFidelity * 100) / 100,
+    concernCount,
+    strongCorroboration,
+    weakCorroboration,
+    unsubstantiatedClaims,
+    edges: edgeMetrics,
+  });
+
+  const raw = await callWithRetry(smallLlm, SMALL_MODEL, SUMMARY_SYSTEM, userPrompt, SUMMARY_MAX_TOKENS);
+  const parsed = safeParseJson(raw);
+
+  const text = typeof parsed?.text === "string" ? parsed.text : "";
+
+  console.log(`[llm] generateSummary done (${Date.now() - t0}ms)`);
+
+  return {
+    text,
+    overallFidelity: Math.round(overallFidelity * 100) / 100,
+    concernCount,
+    strongCorroboration,
+    weakCorroboration,
+    unverifiedClaims: unsubstantiatedClaims,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -521,6 +614,7 @@ async function callWithRetry(
   model: string,
   system: string,
   user: string,
+  maxTokens: number,
   extraParams?: Record<string, unknown>,
 ): Promise<string> {
   let lastError: unknown;
@@ -538,6 +632,7 @@ async function callWithRetry(
         ],
         response_format: { type: "json_object" },
         temperature: 0.1,
+        max_tokens: maxTokens,
         ...extraParams,
       } as any);
       return response.choices[0]?.message?.content ?? "";
@@ -571,9 +666,9 @@ function safeParseJson(raw: string): Record<string, unknown> | null {
   }
 }
 
-function truncate(text: string): string {
-  if (text.length <= MAX_CONTENT_CHARS) return text;
-  return text.slice(0, MAX_CONTENT_CHARS) + "\n...[truncated]";
+function truncate(text: string, limit: number = MAX_EXTRACT_CHARS): string {
+  if (text.length <= limit) return text;
+  return text.slice(0, limit) + "\n...[truncated]";
 }
 
 function clamp01(value: unknown, fallback: number): number {

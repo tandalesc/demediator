@@ -1,17 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ArrowRightIcon } from "@phosphor-icons/react";
 
+interface RecentAnalysis {
+  url: string;
+  title: string;
+  publisher: string;
+  createdAt: string;
+}
+
+function timeAgo(dateStr: string): string {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export default function Page() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [recent, setRecent] = useState<RecentAnalysis[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    fetch("/api/analyze")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: RecentAnalysis[]) => setRecent(data))
+      .catch(() => {});
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -73,6 +100,36 @@ export default function Page() {
             <p className="text-destructive text-xs">{error}</p>
           )}
         </form>
+
+        {recent.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-wider">
+              recent analyses
+            </p>
+            <ul className="space-y-1">
+              {recent.map((item) => (
+                <li key={item.url}>
+                  <Link
+                    href={`/results?url=${encodeURIComponent(item.url)}`}
+                    className="group flex items-baseline justify-between gap-2 rounded px-1 py-0.5 -mx-1 transition-colors hover:bg-muted"
+                  >
+                    <span className="text-xs truncate">
+                      <span className="group-hover:underline">{item.title || item.url}</span>
+                      {item.publisher && (
+                        <span className="text-muted-foreground ml-1.5">
+                          {item.publisher}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-muted-foreground text-[10px] shrink-0">
+                      {timeAgo(item.createdAt)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="text-muted-foreground border-t pt-4 text-xs leading-relaxed">
           <p>

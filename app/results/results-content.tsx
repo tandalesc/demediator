@@ -114,6 +114,53 @@ export function ResultsContent() {
               </div>
             </div>
 
+            {/* Analysis summary */}
+            {data.summary && (
+              <div className="space-y-3 rounded-md border px-4 py-3">
+                <p className="text-muted-foreground text-[10px] font-bold uppercase tracking-wider">
+                  summary
+                </p>
+                {data.summary.text && (
+                  <p className="text-sm leading-relaxed">{data.summary.text}</p>
+                )}
+                <div className="flex flex-wrap gap-4 text-xs">
+                  <span>
+                    <span className="text-muted-foreground">avg fidelity</span>{" "}
+                    <span className="font-semibold">
+                      {Math.round(data.summary.overallFidelity * 100)}%
+                    </span>
+                  </span>
+                  <span>
+                    <span className="text-muted-foreground">strong links</span>{" "}
+                    <span className="font-semibold text-green-600 dark:text-green-400">
+                      {data.summary.strongCorroboration}
+                    </span>
+                  </span>
+                  <span>
+                    <span className="text-muted-foreground">weak/unverified</span>{" "}
+                    <span className="font-semibold text-yellow-600 dark:text-yellow-400">
+                      {data.summary.weakCorroboration}
+                    </span>
+                  </span>
+                </div>
+                {data.summary.unverifiedClaims.length > 0 && (
+                  <details className="space-y-1.5">
+                    <summary className="text-muted-foreground text-[10px] font-bold uppercase tracking-wider cursor-pointer select-none">
+                      unsubstantiated claims ({data.summary.unverifiedClaims.length})
+                    </summary>
+                    <ul className="space-y-1 text-xs">
+                      {data.summary.unverifiedClaims.map((claim, i) => (
+                        <li key={i} className="text-muted-foreground flex gap-1.5">
+                          <span className="text-yellow-600 dark:text-yellow-400 shrink-0">!</span>
+                          <span>{claim}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+
             {/* Source tree */}
             <SourceTree root={tree} />
 

@@ -9,6 +9,7 @@ import {
   embedClaims,
   cosineSimilarity,
   matchPhantomsToReals,
+  generateSummary,
   type ClassificationResult,
   type NodeMatchCandidate,
   type EdgeKGContext,
@@ -926,6 +927,32 @@ export async function runPipeline(articleUrl: string): Promise<PipelineOutput> {
     }));
   }
 
+  // -----------------------------------------------------------------------
+  // Step 8: Back-propagate unsubstantiated claims
+  // -----------------------------------------------------------------------
+  // A claim is "unsubstantiated" if its source node only connects through
+  // edges with weak corroboration (none/unverified) or the node is phantom.
+  const unsubstantiatedClaims: string[] = [];
+  for (const [nodeId, nodeClaims] of Object.entries(claimsRecord)) {
+    const node = finalNodes.find((n) => n.id === nodeId);
+    if (!node) continue;
+    // Edges where this node is the source (upstream)
+    const nodeEdges = finalEdges.filter((e) => e.source === nodeId);
+    const allWeak = nodeEdges.length === 0 || nodeEdges.every(
+      (e) => e.metrics.corroboration === "none" || e.metrics.corroboration === "unverified",
+    );
+    if ((node.phantom || allWeak) && nodeId !== "article") {
+      for (const c of nodeClaims) {
+        unsubstantiatedClaims.push(c.claim);
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Step 9: Generate summary
+  // -----------------------------------------------------------------------
+  const summary = await generateSummary(finalEdges, finalNodes.length, unsubstantiatedClaims);
+
   console.log(
     `[pipeline] DONE (${Date.now() - pipelineStart}ms): ${finalNodes.length} nodes (${prunedNodeIds.size} pruned), ${finalEdges.length} edges, ${Object.keys(claimsRecord).length} nodes with claims`,
   );
@@ -942,6 +969,7 @@ export async function runPipeline(articleUrl: string): Promise<PipelineOutput> {
       nodes: finalNodes,
       edges: finalEdges,
       claims: claimsRecord,
+      summary,
     },
     claimData: claimsByNode,
   };
@@ -1194,7 +1222,7 @@ function gatherCandidates(
 
 const CHUNK_TARGET = 3_000;  // chars per chunk
 const CHUNK_OVERLAP = 200;   // overlap between consecutive chunks for context
-const CHUNK_THRESHOLD = 4_000; // don't bother chunking below this
+const CHUNK_THRESHOLD = 8_000; // don't bother chunking below this
 
 /**
  * Split markdown into passages at paragraph boundaries (~3K each).
