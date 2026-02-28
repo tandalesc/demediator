@@ -4,6 +4,12 @@ Trace epistemic quality through the news source chain. Paste a URL, and demediat
 
 > **Status:** Early development. The core pipeline works but the project is not yet packaged for easy deployment.
 
+## Screenshots
+
+| Landing page | Analysis results |
+|:---:|:---:|
+| ![Landing page](docs/screenshots/landing.png) | ![Analysis results](docs/screenshots/results.png) |
+
 ## What it does
 
 1. **Scrapes** the target article and extracts cited sources (linked and unlinked)
