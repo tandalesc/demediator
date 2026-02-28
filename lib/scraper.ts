@@ -18,7 +18,7 @@ export interface CrawlResult {
 }
 
 const SCRAPER_BASE_URL =
-  process.env.SCRAPER_BASE_URL ?? "http://rrh-ai-1:11235";
+  process.env.SCRAPER_BASE_URL ?? "http://localhost:11235";
 
 const BATCH_SIZE = 5;
 const BATCH_MAX_RETRIES = 2;

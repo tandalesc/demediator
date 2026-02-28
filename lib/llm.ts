@@ -6,26 +6,26 @@ import type { SourceType, Corroboration, Claim, Triple, EntityType, ExtractedCla
 // ---------------------------------------------------------------------------
 
 const smallLlm = new OpenAI({
-  baseURL: process.env.SMALL_LLM_BASE_URL ?? "http://rrh-llm-1:8001/v1",
-  apiKey: "dummy",
+  baseURL: process.env.SMALL_LLM_BASE_URL ?? "http://localhost:8001/v1",
+  apiKey: process.env.SMALL_LLM_API_KEY ?? "dummy",
   timeout: 60_000,
 });
 
 const largeLlm = new OpenAI({
-  baseURL: process.env.LARGE_LLM_BASE_URL ?? "http://rrh-llm-1:8003/v1",
-  apiKey: "dummy",
+  baseURL: process.env.LARGE_LLM_BASE_URL ?? "http://localhost:8003/v1",
+  apiKey: process.env.LARGE_LLM_API_KEY ?? "dummy",
   timeout: 120_000,
 });
 
 const embeddingClient = new OpenAI({
-  baseURL: process.env.EMBEDDING_BASE_URL ?? "http://rrh-llm-1:8002/v1",
-  apiKey: "dummy",
+  baseURL: process.env.EMBEDDING_BASE_URL ?? "http://localhost:8002/v1",
+  apiKey: process.env.EMBEDDING_API_KEY ?? "dummy",
   timeout: 30_000,
 });
 
-const SMALL_MODEL = process.env.SMALL_LLM_MODEL ?? "ramblerun/Multimodal-AI";
-const LARGE_MODEL = process.env.LARGE_LLM_MODEL ?? "ramblerun/Reasoning-AI";
-const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "ramblerun/TextEmbedding-AI";
+const SMALL_MODEL = process.env.SMALL_LLM_MODEL ?? "default-small";
+const LARGE_MODEL = process.env.LARGE_LLM_MODEL ?? "default-large";
+const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? "default-embedding";
 
 const MAX_CLASSIFY_CHARS = 6_000;   // Classification needs first ~1500 words, not 4000
 const MAX_EXTRACT_CHARS = 16_000;   // Claims extraction needs full content
